@@ -143,11 +143,6 @@ Modern dashboard with charts, tables, and AI insights.
 
 See `.env.example` for all configuration options.
 
-## Development
-
-Run services individually for development:
-
-\`\`\`bash
 # Python collector
 cd python-collector
 python -m venv venv
