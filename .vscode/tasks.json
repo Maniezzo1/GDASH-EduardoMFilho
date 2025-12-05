@@ -1,0 +1,17 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "go mod download",
+      "type": "shell",
+      "command": "go",
+      "args": ["mod", "download"],
+      "options": {
+        "cwd": "${workspaceFolder}/go-worker"
+      },
+      "presentation": {
+        "reveal": "silent"
+      }
+    }
+  ]
+}

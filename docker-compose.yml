@@ -1,0 +1,122 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7
+    container_name: weather-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USERNAME:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-password}
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - weather-network
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: weather-rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - weather-network
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  nestjs-api:
+    build:
+      context: ./nestjs-api
+      dockerfile: Dockerfile
+    container_name: weather-nestjs-api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      MONGODB_URI: mongodb://${MONGO_USERNAME:-admin}:${MONGO_PASSWORD:-password}@mongodb:27017/weather?authSource=admin
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-this}
+      DEFAULT_USER_EMAIL: ${DEFAULT_USER_EMAIL:-admin@example.com}
+      DEFAULT_USER_PASSWORD: ${DEFAULT_USER_PASSWORD:-123456}
+    depends_on:
+      - mongodb
+    networks:
+      - weather-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  go-worker:
+    build:
+      context: ./go-worker
+      dockerfile: Dockerfile
+    container_name: weather-go-worker
+    restart: unless-stopped
+    environment:
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
+      NESTJS_API_URL: http://nestjs-api:3000
+      QUEUE_NAME: weather_data
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      nestjs-api:
+        condition: service_healthy
+    networks:
+      - weather-network
+
+  python-collector:
+    build:
+      context: ./python-collector
+      dockerfile: Dockerfile
+    container_name: weather-python-collector
+    restart: unless-stopped
+    environment:
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
+      QUEUE_NAME: weather_data
+      WEATHER_API_URL: https://api.open-meteo.com/v1/forecast
+      LATITUDE: ${LATITUDE:-40.7128}
+      LONGITUDE: ${LONGITUDE:--74.0060}
+      LOCATION_NAME: ${LOCATION_NAME:-New York}
+      COLLECTION_INTERVAL: ${COLLECTION_INTERVAL:-3600}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - weather-network
+
+  react-frontend:
+    build:
+      context: ./react-frontend
+      dockerfile: Dockerfile
+    container_name: weather-react-frontend
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: http://localhost:3000
+    depends_on:
+      - nestjs-api
+    networks:
+      - weather-network
+
+networks:
+  weather-network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
+  rabbitmq_data:
